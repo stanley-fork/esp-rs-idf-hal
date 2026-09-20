@@ -683,6 +683,12 @@ pub mod embassy_sync {
         }
     }
 
+    impl Default for IsrRawMutex {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     unsafe impl RawMutex for IsrRawMutex {
         const INIT: Self = Self::new();
 

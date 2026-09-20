@@ -145,8 +145,13 @@ impl NativeConfig {
                 if comp_dir.join(CMAKELISTS_TXT).exists() {
                     results.push(comp_dir)
                 } else {
-                    for entry in comp_dir.read_dir()? {
-                        let entry = entry?;
+                    // `read_dir` yields entries in an unspecified, filesystem-dependent order.
+                    // Sort them so that the resulting `EXTRA_COMPONENT_DIRS` - and thus the
+                    // component manager's `manifest_hash` - is the same on every machine.
+                    let mut entries = comp_dir.read_dir()?.collect::<std::io::Result<Vec<_>>>()?;
+                    entries.sort_by_key(|entry| entry.file_name());
+
+                    for entry in entries {
                         // Ignore dot-folders.
                         if entry.file_name().to_string_lossy().starts_with('.') {
                             continue;

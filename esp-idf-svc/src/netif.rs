@@ -334,6 +334,7 @@ impl EspNetif {
         Self::new_with_conf(&stack.default_configuration())
     }
 
+    #[allow(unused_mut)]
     pub fn new_with_conf(conf: &NetifConfiguration) -> Result<Self, EspError> {
         initialize_netif_stack()?;
 
@@ -422,32 +423,38 @@ impl EspNetif {
                 None, /* For APs, ESP-IDF supports setting a primary DNS only ip_conf.secondary_dns */
                 None,
             ),
-            None => (
-                esp_netif_inherent_config_t {
-                    flags: conf.flags
-                        | if matches!(conf.stack, NetifStack::Ppp) {
-                            0
-                        } else {
-                            esp_netif_flags_ESP_NETIF_FLAG_AUTOUP
-                        },
-                    mac: initial_mac,
-                    ip_info: ptr::null(),
-                    get_ip_event: conf.got_ip_event_id.map(NonZeroU32::get).unwrap_or(0),
-                    lost_ip_event: conf.lost_ip_event_id.map(NonZeroU32::get).unwrap_or(0),
-                    if_key: c_if_key.as_c_str().as_ptr() as _,
-                    if_desc: c_if_description.as_c_str().as_ptr() as _,
-                    route_prio: conf.route_priority as _,
-                    #[cfg(not(esp_idf_version_major = "4"))]
-                    bridge_info: ptr::null_mut(),
-                    #[cfg(esp_idf_version_at_least_6_0_0)]
-                    mtu: 0,
-                },
-                None,
-                false,
-                None,
-                None,
-                None,
-            ),
+            None => {
+                let mut flags = conf.flags | esp_netif_flags_ESP_NETIF_FLAG_AUTOUP;
+
+                #[cfg(esp_idf_lwip_ppp_support)]
+                {
+                    if matches!(conf.stack, NetifStack::Ppp) {
+                        flags &= !esp_netif_flags_ESP_NETIF_FLAG_AUTOUP;
+                    }
+                }
+
+                (
+                    esp_netif_inherent_config_t {
+                        flags,
+                        mac: initial_mac,
+                        ip_info: ptr::null(),
+                        get_ip_event: conf.got_ip_event_id.map(NonZeroU32::get).unwrap_or(0),
+                        lost_ip_event: conf.lost_ip_event_id.map(NonZeroU32::get).unwrap_or(0),
+                        if_key: c_if_key.as_c_str().as_ptr() as _,
+                        if_desc: c_if_description.as_c_str().as_ptr() as _,
+                        route_prio: conf.route_priority as _,
+                        #[cfg(not(esp_idf_version_major = "4"))]
+                        bridge_info: ptr::null_mut(),
+                        #[cfg(esp_idf_version_at_least_6_0_0)]
+                        mtu: 0,
+                    },
+                    None,
+                    false,
+                    None,
+                    None,
+                    None,
+                )
+            }
         };
 
         if let Some(ip_info) = ip_info.as_ref() {

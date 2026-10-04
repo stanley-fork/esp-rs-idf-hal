@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.
+- Thread: fix compilation when `CONFIG_OPENTHREAD_LOG_LEVEL_DYNAMIC=n` is specified
 
 ## [0.53.0] - 2026-09-25
 

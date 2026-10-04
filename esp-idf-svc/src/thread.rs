@@ -1337,7 +1337,7 @@ where
 
         let instance = unsafe { esp_openthread_get_instance() };
 
-        #[cfg(not(esp_idf_openthread_radio))]
+        #[cfg(all(not(esp_idf_openthread_radio), esp_idf_openthread_log_level_dynamic))]
         unsafe {
             otLoggingSetLevel(CONFIG_LOG_DEFAULT_LEVEL as _);
         }

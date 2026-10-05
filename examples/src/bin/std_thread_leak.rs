@@ -9,6 +9,7 @@
 
 #![allow(unknown_lints)]
 #![allow(unexpected_cfgs)]
+#![allow(clippy::missing_const_for_thread_local)]
 
 use std::thread::{self, Builder};
 use std::time::Duration;

@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - ULP: `UlpDriver` did not compile with the ULP enabled (`CONFIG_ULP_COPROC_ENABLED`) on any chip, as `PhantomData` was not imported and `impl ULP` lacked its lifetime. The workspace `sdkconfig.defaults` now enables the ULP, so CI builds the driver
 - ADC channel drivers no longer call `rtc_gpio_init` on pins that are not RTC (LP) pins, which fails with `ESP_ERR_INVALID_ARG` ("RTCIO number error") on chips whose ADC pins are plain GPIOs
+- RMT (new and legacy): `Pulse::new_with_duration` / `duration_to_ticks` now return `ESP_ERR_INVALID_ARG` instead of silently rounding a non-zero duration shorter than one tick to 0 ticks (the RMT end-of-transmission marker, so nothing was sent)
+- RMT: `Symbol::repeat_for` computes the repeat count and the trailing symbol in whole ticks, so a sub-tick remainder no longer produces a zero-tick end marker
+- rmt-legacy: the `clock_divider` docs now note that the tick period depends on the chip's RMT source clock (e.g. 2.5 µs with the default divider on the esp32h2)
 
 ### Breaking
 - `rmt::encoder::EncoderState` is now `EnumSet<EncoderState>` instead of a standalone enum, fixing a panic/ISR-abort on real hardware when the RMT driver returned a combined state (e.g. `COMPLETE | MEM_FULL`).

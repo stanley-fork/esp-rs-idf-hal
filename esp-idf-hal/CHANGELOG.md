@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ADC channel drivers no longer call `rtc_gpio_init` on pins that are not RTC (LP) pins, which fails with `ESP_ERR_INVALID_ARG` ("RTCIO number error") on chips whose ADC pins are plain GPIOs
 - RMT (new and legacy): `Pulse::new_with_duration` / `duration_to_ticks` now return `ESP_ERR_INVALID_ARG` instead of silently rounding a non-zero duration shorter than one tick to 0 ticks (the RMT end-of-transmission marker, so nothing was sent)
 - RMT: `Symbol::repeat_for` computes the repeat count and the trailing symbol in whole ticks, so a sub-tick remainder no longer produces a zero-tick end marker
+- RMT: the RX channel did not compile against ESP-IDF v5.3.0 and v5.3.1, which name the receive config flags struct `extra_flags` rather than `extra_rmt_receive_flags`
 - rmt-legacy: the `clock_divider` docs now note that the tick period depends on the chip's RMT source clock (e.g. 2.5 µs with the default divider on the esp32h2)
 
 ### Breaking

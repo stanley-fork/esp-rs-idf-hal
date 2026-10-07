@@ -107,7 +107,11 @@ pub mod nvs;
 pub mod ota;
 #[cfg(any(esp_idf_comp_spi_flash_enabled, esp_idf_comp_esp_partition_enabled))]
 pub mod partition;
-#[cfg(esp_idf_comp_esp_netif_enabled)]
+// `CONFIG_LWIP_IPV4` only exists since ESP-IDF 5.1; before that IPv4 is always enabled
+#[cfg(all(
+    esp_idf_comp_esp_netif_enabled,
+    any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0))
+))]
 pub mod ping;
 #[cfg(all(feature = "alloc", esp_idf_comp_esp_netif_enabled))]
 pub mod sntp;

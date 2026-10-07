@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - bindings: include `ulp_lp_core.h` instead of `ulp_riscv.h` when the ULP is an LP core (`CONFIG_ULP_COPROC_TYPE_LP_CORE`: esp32c5, esp32c6, esp32p4 and esp32s31); bindgen failed because `ulp_riscv.h` does not exist on those chips
 - Sort the extra components' dirs so that we get a predictable build hash by the ESP-IDF Component Manager
+- `checks/libc.rs`: gate the IPv4-specific checks (`sockaddr_in`, `ip_mreq`, `IP_ADD_MEMBERSHIP`, `IP_DROP_MEMBERSHIP`) on `esp_idf_lwip_ipv4`, so builds with `CONFIG_LWIP_IPV4=n` no longer fail
 
 ## [0.38.1] - 2026-09-16
 

@@ -179,7 +179,9 @@ impl NetifConfiguration {
             key: "ETH_DEF".try_into().unwrap(),
             description: "eth".try_into().unwrap(),
             route_priority: 60,
-            ip_configuration: Some(ipv4::Configuration::Client(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Client(
+                Default::default(),
+            )),
             stack: NetifStack::Eth,
             custom_mac: None,
         }
@@ -193,7 +195,9 @@ impl NetifConfiguration {
             key: "ETH_RT_DEF".try_into().unwrap(),
             description: "ethrt".try_into().unwrap(),
             route_priority: 50,
-            ip_configuration: Some(ipv4::Configuration::Router(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Router(
+                Default::default(),
+            )),
             stack: NetifStack::Eth,
             custom_mac: None,
         }
@@ -208,7 +212,9 @@ impl NetifConfiguration {
             key: "WIFI_STA_DEF".try_into().unwrap(),
             description: "sta".try_into().unwrap(),
             route_priority: 100,
-            ip_configuration: Some(ipv4::Configuration::Client(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Client(
+                Default::default(),
+            )),
             stack: NetifStack::Sta,
             custom_mac: None,
         }
@@ -223,7 +229,9 @@ impl NetifConfiguration {
             key: "WIFI_AP_DEF".try_into().unwrap(),
             description: "ap".try_into().unwrap(),
             route_priority: 10,
-            ip_configuration: Some(ipv4::Configuration::Router(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Router(
+                Default::default(),
+            )),
             stack: NetifStack::Ap,
             custom_mac: None,
         }
@@ -256,7 +264,9 @@ impl NetifConfiguration {
             key: "PPP_RT_DEF".try_into().unwrap(),
             description: "ppprt".try_into().unwrap(),
             route_priority: 20,
-            ip_configuration: Some(ipv4::Configuration::Router(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Router(
+                Default::default(),
+            )),
             stack: NetifStack::Ppp,
             custom_mac: None,
         }
@@ -271,7 +281,9 @@ impl NetifConfiguration {
             key: "SLIP_CL_DEF".try_into().unwrap(),
             description: "slip".try_into().unwrap(),
             route_priority: 35,
-            ip_configuration: Some(ipv4::Configuration::Client(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Client(
+                Default::default(),
+            )),
             stack: NetifStack::Slip,
             custom_mac: None,
         }
@@ -286,7 +298,9 @@ impl NetifConfiguration {
             key: "SLIP_RT_DEF".try_into().unwrap(),
             description: "sliprt".try_into().unwrap(),
             route_priority: 25,
-            ip_configuration: Some(ipv4::Configuration::Router(Default::default())),
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Router(
+                Default::default(),
+            )),
             stack: NetifStack::Slip,
             custom_mac: None,
         }
@@ -306,6 +320,13 @@ impl NetifConfiguration {
             custom_mac: None,
         }
     }
+}
+
+/// Return `conf` as the default IP configuration of a netif, or `None` without IPv4, as
+/// ESP-IDF then has neither a DHCP client / server nor static IPv4 addressing.
+// `CONFIG_LWIP_IPV4` only exists since ESP-IDF 5.1; before that IPv4 is always enabled
+fn default_ip_configuration(conf: ipv4::Configuration) -> Option<ipv4::Configuration> {
+    cfg!(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0))).then_some(conf)
 }
 
 static INITALIZED: mutex::Mutex<bool> = mutex::Mutex::new(false);
@@ -336,6 +357,12 @@ impl EspNetif {
 
     #[allow(unused_mut)]
     pub fn new_with_conf(conf: &NetifConfiguration) -> Result<Self, EspError> {
+        // Without IPv4, ESP-IDF has neither a DHCP client / server nor static IPv4 addressing
+        #[cfg(not(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0))))]
+        if conf.ip_configuration.is_some() {
+            return Err(EspError::from_infallible::<ESP_ERR_NOT_SUPPORTED>());
+        }
+
         initialize_netif_stack()?;
 
         let c_if_key = to_cstring_arg(conf.key.as_str())?;
@@ -478,22 +505,26 @@ impl EspNetif {
             netif.set_dns(dns);
 
             if dhcps {
-                #[cfg(esp_idf_version_major = "4")]
-                let mut dhcps_dns_value: dhcps_offer_t = dhcps_offer_option_OFFER_DNS as _;
+                // The DHCP server only exists with IPv4, and `dhcps` is always `false` without it
+                #[cfg(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0)))]
+                {
+                    #[cfg(esp_idf_version_major = "4")]
+                    let mut dhcps_dns_value: dhcps_offer_t = dhcps_offer_option_OFFER_DNS as _;
 
-                // Strangely dhcps_offer_t and dhcps_offer_option_* are not included in ESP-IDF V5's bindings
-                #[cfg(not(esp_idf_version_major = "4"))]
-                let mut dhcps_dns_value: u8 = 2_u8;
+                    // Strangely dhcps_offer_t and dhcps_offer_option_* are not included in ESP-IDF V5's bindings
+                    #[cfg(not(esp_idf_version_major = "4"))]
+                    let mut dhcps_dns_value: u8 = 2_u8;
 
-                esp!(unsafe {
-                    esp_netif_dhcps_option(
-                        netif.handle,
-                        esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
-                        esp_netif_dhcp_option_id_t_ESP_NETIF_DOMAIN_NAME_SERVER,
-                        &mut dhcps_dns_value as *mut _ as *mut _,
-                        core::mem::size_of_val(&dhcps_dns_value) as u32,
-                    )
-                })?;
+                    esp!(unsafe {
+                        esp_netif_dhcps_option(
+                            netif.handle,
+                            esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
+                            esp_netif_dhcp_option_id_t_ESP_NETIF_DOMAIN_NAME_SERVER,
+                            &mut dhcps_dns_value as *mut _ as *mut _,
+                            core::mem::size_of_val(&dhcps_dns_value) as u32,
+                        )
+                    })?;
+                }
             }
         }
 
@@ -517,13 +548,26 @@ impl EspNetif {
         if !self.is_netif_up()? {
             Ok(false)
         } else {
-            let mut ip_info = Default::default();
-            unsafe { esp!(esp_netif_get_ip_info(self.handle, &mut ip_info)) }?;
+            #[cfg(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0)))]
+            {
+                let mut ip_info = Default::default();
+                unsafe { esp!(esp_netif_get_ip_info(self.handle, &mut ip_info)) }?;
 
-            Ok(ipv4::IpInfo::from(Newtype(ip_info)).ip != ipv4::Ipv4Addr::new(0, 0, 0, 0))
+                Ok(ipv4::IpInfo::from(Newtype(ip_info)).ip != ipv4::Ipv4Addr::new(0, 0, 0, 0))
+            }
+
+            // Without IPv4, the netif is up once it has an IPv6 address
+            #[cfg(not(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0))))]
+            {
+                let mut ip6_addrs =
+                    [esp_ip6_addr_t::default(); CONFIG_LWIP_IPV6_NUM_ADDRESSES as usize];
+
+                Ok(unsafe { esp_netif_get_all_ip6(self.handle, ip6_addrs.as_mut_ptr()) } > 0)
+            }
         }
     }
 
+    #[cfg(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0)))]
     pub fn get_ip_info(&self) -> Result<ipv4::IpInfo, EspError> {
         let mut ip_info = Default::default();
         unsafe { esp!(esp_netif_get_ip_info(self.handle, &mut ip_info)) }?;

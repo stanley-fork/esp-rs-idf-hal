@@ -352,6 +352,8 @@ impl<T> Drop for SpiEth<T> {
 pub struct EthDriver<'d, T> {
     _flavor: T,
     handle: esp_eth_handle_t,
+    mac: *mut esp_eth_mac_t,
+    phy: *mut esp_eth_phy_t,
     status: Arc<mutex::Mutex<Status>>,
     _subscription: EspSubscription<'static, System>,
     callback: Option<Box<RawCallback<'d>>>,
@@ -890,6 +892,11 @@ where
                 let mac = unsafe { esp_eth_mac_new_ksz8851snl(&ksz8851snl_cfg, &mac_cfg) };
                 let phy = unsafe { esp_eth_phy_new_ksz8851snl(&phy_cfg) };
 
+                // On ESP-IDF 4, the KSZ8851SNL MAC (unlike the other SPI MACs) removes the SPI
+                // device it was given when it is deleted
+                #[cfg(esp_idf_version_major = "4")]
+                let spi_handle = spi_handle.filter(|_| mac.is_null());
+
                 (mac, phy, spi_handle)
             }
         };
@@ -937,15 +944,44 @@ impl<'d, T> EthDriver<'d, T> {
     ) -> Result<Self, EspError> {
         let cfg = Self::eth_default_config(mac, phy);
 
+        // The MAC and the PHY are owned by the driver, hence they are deleted on failure as well
         let mut handle: esp_eth_handle_t = ptr::null_mut();
-        esp!(unsafe { esp_eth_driver_install(&cfg, &mut handle) })?;
+        if let Err(err) = esp!(unsafe { esp_eth_driver_install(&cfg, &mut handle) }) {
+            unsafe { Self::delete_mac_phy(mac, phy) };
+
+            return Err(err);
+        }
 
         ::log::info!("Driver initialized");
+
+        let (waitable, subscription) = match Self::subscribe(handle, &sysloop) {
+            Ok(subscription) => subscription,
+            Err(err) => {
+                unsafe {
+                    esp_eth_driver_uninstall(handle);
+                    Self::delete_mac_phy(mac, phy);
+                }
+
+                return Err(err);
+            }
+        };
+
+        // From here on, dropping `eth` releases the driver, the MAC and the PHY
+        let eth = Self {
+            handle,
+            mac,
+            phy,
+            _flavor: flavor,
+            status: waitable,
+            _subscription: subscription,
+            callback: None,
+            _p: PhantomData,
+        };
 
         if let Some(mac_addr) = mac_addr {
             esp!(unsafe {
                 esp_eth_ioctl(
-                    handle,
+                    eth.handle,
                     esp_eth_io_cmd_t_ETH_CMD_S_MAC_ADDR,
                     mac_addr.as_ptr() as *mut _,
                 )
@@ -954,20 +990,23 @@ impl<'d, T> EthDriver<'d, T> {
             ::log::info!("Attached MAC address: {mac_addr:?}");
         }
 
-        let (waitable, subscription) = Self::subscribe(handle, &sysloop)?;
-
-        let eth = Self {
-            handle,
-            _flavor: flavor,
-            status: waitable,
-            _subscription: subscription,
-            callback: None,
-            _p: PhantomData,
-        };
-
         ::log::info!("Initialization complete");
 
         Ok(eth)
+    }
+
+    /// Delete the MAC and the PHY of a driver which is not (or no longer) installed.
+    ///
+    /// `esp_eth_driver_uninstall` only de-initializes them; deleting them also releases their
+    /// resources, e.g. the receive task of the MAC, or the SPI device of an SPI Ethernet MAC.
+    unsafe fn delete_mac_phy(mac: *mut esp_eth_mac_t, phy: *mut esp_eth_phy_t) {
+        if let Some(del) = mac.as_ref().and_then(|mac| mac.del) {
+            del(mac);
+        }
+
+        if let Some(del) = phy.as_ref().and_then(|phy| phy.del) {
+            del(phy);
+        }
     }
 
     fn subscribe(
@@ -1111,6 +1150,7 @@ impl<'d, T> EthDriver<'d, T> {
 
         unsafe {
             esp!(esp_eth_driver_uninstall(self.handle))?;
+            Self::delete_mac_phy(self.mac, self.phy);
         }
 
         ::log::info!("Driver deinitialized");

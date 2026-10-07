@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.
 - Thread: fix compilation when `CONFIG_OPENTHREAD_LOG_LEVEL_DYNAMIC=n` is specified
+- WS client: `WebSocketEventType::Close` decoded the closing reason from the address of the payload rather than from its first two bytes
+- WS client: `WEBSOCKET_EVENT_BEFORE_CONNECT` was reported as an error rather than as `WebSocketEventType::BeforeConnect` on ESP-IDF 6+
+
+### Breaking
+- WS client: `WebSocketEventType::Text` and `Binary` now carry a `WebSocketMessage`, which is either a whole message or a chunk of one (a message larger than `buffer_size`, or split by the peer into several frames, arrives in several chunks). `WebSocketMessage::complete()` / `complete_str()` return a message delivered in a single event; `data()`, `offset()`, `is_first()` and `is_last()` allow reassembling the chunks of a larger one. Previously each chunk was emitted as a separate `Text(&str)` / `Binary(&[u8])` event with no way to tell where the message ends, a text chunk splitting a multi-byte UTF-8 character failed with an error, and continuation frames were reported as errors
 
 ## [0.53.0] - 2026-09-25
 

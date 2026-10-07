@@ -192,14 +192,18 @@ mod example {
                         info!("Websocket closed");
                         tx.send(ExampleEvent::Closed).ok();
                     }
-                    WebSocketEventType::Text(text) => {
-                        info!("Websocket recv, text: {text}");
-                        if text == "Hello, World!" {
-                            tx.send(ExampleEvent::MessageReceived).ok();
+                    WebSocketEventType::Text(message) => {
+                        // Messages larger than `buffer_size` arrive in several chunks,
+                        // which this example does not reassemble
+                        if let Some(Ok(text)) = message.complete_str() {
+                            info!("Websocket recv, text: {text}");
+                            if text == "Hello, World!" {
+                                tx.send(ExampleEvent::MessageReceived).ok();
+                            }
                         }
                     }
-                    WebSocketEventType::Binary(binary) => {
-                        info!("Websocket recv, binary: {binary:?}");
+                    WebSocketEventType::Binary(message) => {
+                        info!("Websocket recv, binary: {:?}", message.data());
                     }
                     WebSocketEventType::Ping => {
                         info!("Websocket ping");

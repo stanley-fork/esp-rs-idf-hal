@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Eth: dropping an `EthDriver` did not delete its MAC and PHY, leaking their resources (e.g. the MAC's receive task). With an SPI Ethernet chip on ESP-IDF 5+, the SPI device the MAC had added was left on the bus, so dropping the `SpiDriver` afterwards panicked with "not all CSses freed". The MAC and PHY are now also deleted when the driver fails to initialize
 
 ### Breaking
+- Eth: all `EthDriver` constructors (`new`, `new_rmii`, `new_openeth`, `new_spi`, `new_spi_with_event_source`) take a new `config: &EthConfiguration` argument (before `sysloop`), which sets the stack size and the priority of the receive task, which runs the receive callbacks. Pass `&EthConfiguration::new()` for the previous defaults
 - WS client: `WebSocketEventType::Text` and `Binary` now carry a `WebSocketMessage`, which is either a whole message or a chunk of one (a message larger than `buffer_size`, or split by the peer into several frames, arrives in several chunks). `WebSocketMessage::complete()` / `complete_str()` return a message delivered in a single event; `data()`, `offset()`, `is_first()` and `is_last()` allow reassembling the chunks of a larger one. Previously each chunk was emitted as a separate `Text(&str)` / `Binary(&[u8])` event with no way to tell where the message ends, a text chunk splitting a multi-byte UTF-8 character failed with an error, and continuation frames were reported as errors
 
 ## [0.53.0] - 2026-09-25

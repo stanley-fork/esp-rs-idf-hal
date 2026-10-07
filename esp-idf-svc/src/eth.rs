@@ -320,6 +320,35 @@ enum Status {
     Disconnected,
 }
 
+/// Configuration of an [`EthDriver`].
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct EthConfiguration {
+    /// Stack size (in bytes) of the task which receives the Ethernet frames and runs the
+    /// receive callbacks (see e.g. [`EthDriver::set_rx_callback`])
+    pub rx_task_stack_size: usize,
+    /// Priority of the task which receives the Ethernet frames
+    pub rx_task_priority: u8,
+}
+
+impl EthConfiguration {
+    /// Create a configuration with the default values.
+    pub const fn new() -> Self {
+        Self {
+            #[cfg(esp_idf_version_major = "4")]
+            rx_task_stack_size: 2048,
+            #[cfg(not(esp_idf_version_major = "4"))]
+            rx_task_stack_size: 4096,
+            rx_task_priority: 15,
+        }
+    }
+}
+
+impl Default for EthConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct RmiiEth;
 
 pub struct OpenEth;
@@ -377,6 +406,7 @@ impl<'d> EthDriver<'d, RmiiEth> {
         rst: Option<impl gpio::OutputPin + 'd>,
         chipset: RmiiEthChipset,
         phy_addr: Option<u32>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         Self::new_rmii(
@@ -393,6 +423,7 @@ impl<'d> EthDriver<'d, RmiiEth> {
             rst,
             chipset,
             phy_addr,
+            config,
             sysloop,
         )
     }
@@ -412,12 +443,14 @@ impl<'d> EthDriver<'d, RmiiEth> {
         rst: Option<impl gpio::OutputPin + 'd>,
         chipset: RmiiEthChipset,
         phy_addr: Option<u32>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         let rst = rst.map(|rst| rst.pin() as _);
 
         let eth = Self::init(
             Self::rmii_mac(
+                config,
                 rmii_mdc.pin() as _,
                 rmii_mdio.pin() as _,
                 &rmii_ref_clk_config,
@@ -482,10 +515,15 @@ impl<'d> EthDriver<'d, RmiiEth> {
         Ok(phy)
     }
 
-    fn rmii_mac(mdc: i32, mdio: i32, clk_config: &RmiiClockConfig<'d>) -> *mut esp_eth_mac_t {
+    fn rmii_mac(
+        config: &EthConfiguration,
+        mdc: i32,
+        mdio: i32,
+        clk_config: &RmiiClockConfig<'d>,
+    ) -> *mut esp_eth_mac_t {
         #[cfg(esp_idf_version_major = "4")]
         let mac = {
-            let mut config = Self::eth_mac_default_config(mdc, mdio);
+            let mut config = Self::eth_mac_config(config, mdc, mdio);
 
             config.clock_config = clk_config.eth_mac_clock_config();
 
@@ -497,7 +535,7 @@ impl<'d> EthDriver<'d, RmiiEth> {
             let mut esp32_config = Self::eth_esp32_emac_default_config(mdc, mdio);
             esp32_config.clock_config = clk_config.eth_mac_clock_config();
 
-            let config = Self::eth_mac_default_config(mdc, mdio);
+            let config = Self::eth_mac_config(config, mdc, mdio);
 
             unsafe { esp_eth_mac_new_esp32(&esp32_config, &config) }
         };
@@ -565,17 +603,19 @@ impl<'d> EthDriver<'d, RmiiEth> {
 impl<'d> EthDriver<'d, OpenEth> {
     pub fn new(
         mac: crate::hal::mac::MAC<'d>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
-        Self::new_openeth(mac, sysloop)
+        Self::new_openeth(mac, config, sysloop)
     }
 
     pub fn new_openeth(
         _mac: crate::hal::mac::MAC<'d>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         let eth = Self::init(
-            unsafe { esp_eth_mac_new_openeth(&Self::eth_mac_default_config(0, 0)) },
+            unsafe { esp_eth_mac_new_openeth(&Self::eth_mac_config(config, 0, 0)) },
             unsafe { esp_eth_phy_new_dp83848(&Self::eth_phy_default_config(None, None)) },
             None,
             OpenEth {},
@@ -608,10 +648,11 @@ where
         baudrate: Hertz,
         mac_addr: Option<&[u8; 6]>,
         phy_addr: Option<u32>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         Self::new_spi(
-            driver, int, cs, rst, chipset, baudrate, mac_addr, phy_addr, sysloop,
+            driver, int, cs, rst, chipset, baudrate, mac_addr, phy_addr, config, sysloop,
         )
     }
 
@@ -625,6 +666,7 @@ where
         baudrate: Hertz,
         mac_addr: Option<&[u8; 6]>,
         phy_addr: Option<u32>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         Self::new_spi_with_event_source(
@@ -636,6 +678,7 @@ where
             baudrate,
             mac_addr,
             phy_addr,
+            config,
             sysloop,
         )
     }
@@ -650,9 +693,11 @@ where
         baudrate: Hertz,
         mac_addr: Option<&[u8; 6]>,
         phy_addr: Option<u32>,
+        config: &EthConfiguration,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
         let (mac, phy, device) = Self::init_spi(
+            config,
             driver.borrow().host(),
             chipset,
             baudrate,
@@ -693,6 +738,7 @@ where
 
     #[allow(clippy::unnecessary_literal_unwrap, clippy::too_many_arguments)]
     fn init_spi(
+        config: &EthConfiguration,
         host: spi_host_device_t,
         chipset: SpiEthChipset,
         baudrate: Hertz,
@@ -725,7 +771,7 @@ where
     > {
         crate::hal::gpio::enable_isr_service()?;
 
-        let mac_cfg = Self::eth_mac_default_config(0, 0);
+        let mac_cfg = Self::eth_mac_config(config, 0, 0);
         let phy_cfg = Self::eth_phy_default_config(rst, phy_addr);
 
         let (mac, phy, spi_handle) = match chipset {
@@ -1202,11 +1248,11 @@ impl<'d, T> EthDriver<'d, T> {
     }
 
     #[cfg(esp_idf_version_major = "4")]
-    fn eth_mac_default_config(mdc: i32, mdio: i32) -> eth_mac_config_t {
+    fn eth_mac_config(config: &EthConfiguration, mdc: i32, mdio: i32) -> eth_mac_config_t {
         eth_mac_config_t {
             sw_reset_timeout_ms: 100,
-            rx_task_stack_size: 2048,
-            rx_task_prio: 15,
+            rx_task_stack_size: config.rx_task_stack_size as _,
+            rx_task_prio: config.rx_task_priority as _,
             smi_mdc_gpio_num: mdc,
             smi_mdio_gpio_num: mdio,
             flags: 0,
@@ -1217,11 +1263,11 @@ impl<'d, T> EthDriver<'d, T> {
     }
 
     #[cfg(not(esp_idf_version_major = "4"))]
-    fn eth_mac_default_config(_mdc: i32, _mdio: i32) -> eth_mac_config_t {
+    fn eth_mac_config(config: &EthConfiguration, _mdc: i32, _mdio: i32) -> eth_mac_config_t {
         eth_mac_config_t {
             sw_reset_timeout_ms: 100,
-            rx_task_stack_size: 4096,
-            rx_task_prio: 15,
+            rx_task_stack_size: config.rx_task_stack_size as _,
+            rx_task_prio: config.rx_task_priority as _,
             flags: 0,
         }
     }

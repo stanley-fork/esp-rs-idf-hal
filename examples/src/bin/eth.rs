@@ -55,6 +55,7 @@ fn main() -> anyhow::Result<()> {
         #[cfg(not(esp_idf_version_at_least_5_4_0))]
         esp_idf_svc::eth::RmiiEthChipset::LAN87XX,
         Some(0),
+        &esp_idf_svc::eth::EthConfiguration::new(),
         sys_loop.clone(),
     )?;
     let eth = EspEth::wrap(eth_driver)?;

@@ -39,7 +39,7 @@ use crate::temp_sensor;
 use crate::timer;
 use crate::uart;
 #[cfg(all(
-    any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4),
+    any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4, esp32s31),
     esp_idf_comp_ulp_enabled
 ))]
 use crate::ulp;
@@ -127,7 +127,7 @@ pub struct Peripherals {
     #[cfg(feature = "rmt-legacy")]
     pub rmt: rmt_legacy::RMT,
     #[cfg(all(
-        any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4),
+        any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4, esp32s31),
         esp_idf_comp_ulp_enabled
     ))]
     pub ulp: ulp::ULP<'static>,
@@ -273,7 +273,7 @@ impl Peripherals {
             #[cfg(feature = "rmt-legacy")]
             rmt: rmt_legacy::RMT::new(),
             #[cfg(all(
-                any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4),
+                any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4, esp32s31),
                 esp_idf_comp_ulp_enabled
             ))]
             ulp: ulp::ULP::steal(),

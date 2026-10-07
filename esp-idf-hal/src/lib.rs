@@ -159,7 +159,7 @@ pub mod timer {
 
 pub mod uart;
 #[cfg(all(
-    any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4),
+    any(esp32, esp32s2, esp32s3, esp32c5, esp32c6, esp32p4, esp32s31),
     esp_idf_comp_ulp_enabled
 ))]
 pub mod ulp;

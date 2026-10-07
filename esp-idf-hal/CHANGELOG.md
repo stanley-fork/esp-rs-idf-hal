@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - modem: `Modem::split()` / `split_reborrow()` into Wi-Fi, Thread and Bluetooth modems on the esp32s31
 
 ### Fixed
+- ULP: `UlpDriver` is no longer compiled when the ULP is an LP core (`CONFIG_ULP_COPROC_TYPE_LP_CORE`, e.g. esp32c6); it referenced the ULP FSM/RISC-V timer registers of the esp32/esp32s2/esp32s3 and broke the build
 - ADC channel drivers no longer call `rtc_gpio_init` on pins that are not RTC (LP) pins, which fails with `ESP_ERR_INVALID_ARG` ("RTCIO number error") on chips whose ADC pins are plain GPIOs
 
 ### Breaking

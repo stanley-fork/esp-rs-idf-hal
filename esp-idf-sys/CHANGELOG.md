@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bindings: the Bluedroid Classic BT headers are included for the esp32s31 as well as the esp32
 
 ### Fixed
+- bindings: include `ulp_lp_core.h` instead of `ulp_riscv.h` when the ULP is an LP core (`CONFIG_ULP_COPROC_TYPE_LP_CORE`, e.g. esp32c6); bindgen failed because `ulp_riscv.h` does not exist on those chips
 - Sort the extra components' dirs so that we get a predictable build hash by the ESP-IDF Component Manager
 
 ## [0.38.1] - 2026-09-16

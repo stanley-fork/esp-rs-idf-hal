@@ -67,7 +67,11 @@ impl Word {
 }
 
 #[cfg(any(
-    all(not(esp_idf_version_major = "4"), esp_idf_ulp_coproc_enabled),
+    all(
+        not(esp_idf_version_major = "4"),
+        esp_idf_ulp_coproc_enabled,
+        not(esp_idf_ulp_coproc_type_lp_core)
+    ),
     all(esp32, esp_idf_esp32_ulp_coproc_enabled),
     all(esp32s2, esp_idf_esp32s2_ulp_coproc_enabled),
     all(esp32s3, esp_idf_esp32s3_ulp_coproc_enabled)
@@ -75,7 +79,11 @@ impl Word {
 pub struct UlpDriver<'d>(PhantomData<&'d mut ()>);
 
 #[cfg(any(
-    all(not(esp_idf_version_major = "4"), esp_idf_ulp_coproc_enabled),
+    all(
+        not(esp_idf_version_major = "4"),
+        esp_idf_ulp_coproc_enabled,
+        not(esp_idf_ulp_coproc_type_lp_core)
+    ),
     all(esp32, esp_idf_esp32_ulp_coproc_enabled),
     all(esp32s2, esp_idf_esp32s2_ulp_coproc_enabled),
     all(esp32s3, esp_idf_esp32s3_ulp_coproc_enabled)
@@ -83,7 +91,11 @@ pub struct UlpDriver<'d>(PhantomData<&'d mut ()>);
 unsafe impl<'d> Send for UlpDriver<'d> {}
 
 #[cfg(any(
-    all(not(esp_idf_version_major = "4"), esp_idf_ulp_coproc_enabled),
+    all(
+        not(esp_idf_version_major = "4"),
+        esp_idf_ulp_coproc_enabled,
+        not(esp_idf_ulp_coproc_type_lp_core)
+    ),
     all(esp32, esp_idf_esp32_ulp_coproc_enabled),
     all(esp32s2, esp_idf_esp32s2_ulp_coproc_enabled),
     all(esp32s3, esp_idf_esp32s3_ulp_coproc_enabled)
@@ -263,7 +275,7 @@ impl<'d> UlpDriver<'d> {
     all(
         not(esp_idf_version_major = "4"),
         esp_idf_ulp_coproc_enabled,
-        not(esp_idf_ulp_coproc_type_fsm)
+        esp_idf_ulp_coproc_type_riscv
     ),
     all(
         esp32s2,
@@ -322,7 +334,11 @@ impl<'d> UlpDriver<'d> {
 crate::impl_peripheral!(ULP);
 
 #[cfg(any(
-    all(not(esp_idf_version_major = "4"), esp_idf_ulp_coproc_enabled),
+    all(
+        not(esp_idf_version_major = "4"),
+        esp_idf_ulp_coproc_enabled,
+        not(esp_idf_ulp_coproc_type_lp_core)
+    ),
     all(esp32, esp_idf_esp32_ulp_coproc_enabled),
     all(esp32s2, esp_idf_esp32s2_ulp_coproc_enabled),
     all(esp32s3, esp_idf_esp32s3_ulp_coproc_enabled)

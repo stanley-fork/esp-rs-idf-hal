@@ -725,8 +725,10 @@
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "esp32s3/ulp.h"
 #endif
-#else
+#elif CONFIG_ULP_COPROC_TYPE_RISCV
 #include "ulp_riscv.h"
+#elif CONFIG_ULP_COPROC_TYPE_LP_CORE
+#include "ulp_lp_core.h"
 #endif
 #endif
 #else

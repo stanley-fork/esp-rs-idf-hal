@@ -613,6 +613,25 @@ impl EspNetif {
         Ok(())
     }
 
+    /// Return the MTU (in bytes) of the netif.
+    #[cfg(esp_idf_version_at_least_6_0_0)]
+    pub fn get_mtu(&self) -> Result<u16, EspError> {
+        let mut mtu = 0;
+
+        esp!(unsafe { esp_netif_get_mtu(self.handle, &mut mtu) })?;
+        Ok(mtu)
+    }
+
+    /// Set the MTU (in bytes) of the netif.
+    ///
+    /// TCP derives the maximum segment size of a connection from the MTU when the
+    /// connection is established, so the MTU should be set before opening connections.
+    #[cfg(esp_idf_version_at_least_6_0_0)]
+    pub fn set_mtu(&mut self, mtu: u16) -> Result<(), EspError> {
+        esp!(unsafe { esp_netif_set_mtu(self.handle, mtu) })?;
+        Ok(())
+    }
+
     pub fn get_dns(&self) -> ipv4::Ipv4Addr {
         let mut dns_info = Default::default();
 

@@ -570,6 +570,12 @@ where
         })
     }
 
+    /// Add a descriptor to the characteristic which was added last to the service.
+    ///
+    /// ESP-IDF lays out the attributes of a service in the order in which they are added, so the
+    /// descriptors of a characteristic have to be added right after the characteristic itself,
+    /// before adding the next characteristic. There is no need to wait for the
+    /// `CharacteristicAdded` event of the characteristic first.
     pub fn add_descriptor(
         &self,
         service_handle: Handle,

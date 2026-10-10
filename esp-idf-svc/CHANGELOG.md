@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Netif: layer 2 bridging between netifs (e.g. Ethernet and a Wi-Fi access point) with `EspNetifBridge`, whose netif is created with the new `NetifStack::Bridge` stack (`NetifConfiguration::bridge_default`); requires `CONFIG_ESP_NETIF_BRIDGE_EN=y`
 - Event loop: `Wait::also` / `AsyncWait::also`, for waiting on events of several sources
 - Wi-Fi: `WifiDriver::set_power_save` / `get_power_save` (and on `EspWifi`), e.g. for disabling modem sleep, which delays receiving data by up to the DTIM period
+- Wi-Fi: WPA2 / WPA3 Enterprise (802.1X / EAP) authentication of the station with `EnterpriseConfiguration` and `WifiDriver::enable_enterprise` / `disable_enterprise` (and on `EspWifi`); ESP-IDF v5.0.5+, v5.1.2+ and v5.2+
 
 ### Fixed
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.

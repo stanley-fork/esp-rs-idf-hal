@@ -73,6 +73,12 @@
 #include "esp_efuse_table.h"
 #endif
 
+// Digital Signature peripheral; the header lives in `esp_hw_support` (ESP-IDF 5.x) or
+// `esp_security` (ESP-IDF 6+), and is chip-specific before ESP-IDF 5.1
+#if defined(CONFIG_SOC_DIG_SIGN_SUPPORTED) && ((ESP_IDF_VERSION_MAJOR > 5) || ((ESP_IDF_VERSION_MAJOR == 5) && (ESP_IDF_VERSION_MINOR >= 1)))
+#include "esp_ds.h"
+#endif
+
 #ifdef ESP_IDF_COMP_ESP_PM_ENABLED
 #include "esp_pm.h"
 #endif

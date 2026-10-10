@@ -352,6 +352,48 @@ impl From<wifi_interface_t> for WifiDeviceId {
     }
 }
 
+/// Power saving (modem sleep) of the Wi-Fi station.
+///
+/// With modem sleep, the station turns its radio off between the beacons of the access point,
+/// which buffers the frames for the station meanwhile. This saves power, but delays receiving
+/// data by up to the DTIM period ([`PowerSaveMode::Minimum`]) or the listen interval
+/// ([`PowerSaveMode::Maximum`]) - typically hundreds of milliseconds.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub enum PowerSaveMode {
+    /// No modem sleep: the lowest latency, but the highest power consumption.
+    ///
+    /// When Wi-Fi coexists with Bluetooth, the radio still sleeps outside of the time slices
+    /// assigned to Wi-Fi.
+    None,
+    /// Wake up for every DTIM beacon (the default of ESP-IDF)
+    #[default]
+    Minimum,
+    /// Wake up only every `listen_interval` beacons
+    Maximum,
+}
+
+impl From<PowerSaveMode> for wifi_ps_type_t {
+    fn from(mode: PowerSaveMode) -> Self {
+        match mode {
+            PowerSaveMode::None => wifi_ps_type_t_WIFI_PS_NONE,
+            PowerSaveMode::Minimum => wifi_ps_type_t_WIFI_PS_MIN_MODEM,
+            PowerSaveMode::Maximum => wifi_ps_type_t_WIFI_PS_MAX_MODEM,
+        }
+    }
+}
+
+#[allow(non_upper_case_globals)]
+impl From<wifi_ps_type_t> for PowerSaveMode {
+    fn from(mode: wifi_ps_type_t) -> Self {
+        match mode {
+            wifi_ps_type_t_WIFI_PS_NONE => PowerSaveMode::None,
+            wifi_ps_type_t_WIFI_PS_MIN_MODEM => PowerSaveMode::Minimum,
+            wifi_ps_type_t_WIFI_PS_MAX_MODEM => PowerSaveMode::Maximum,
+            _ => unreachable!(),
+        }
+    }
+}
+
 extern "C" {
     fn esp_wifi_internal_reg_rxcb(
         ifx: wifi_interface_t,
@@ -1398,6 +1440,21 @@ impl<'d> WifiDriver<'d> {
         };
         Ok(rssi as i32)
     }
+
+    /// Get the power saving (modem sleep) mode of the station.
+    pub fn get_power_save(&self) -> Result<PowerSaveMode, EspError> {
+        let mut mode: wifi_ps_type_t = 0;
+        esp!(unsafe { esp_wifi_get_ps(&mut mode) })?;
+
+        Ok(mode.into())
+    }
+
+    /// Set the power saving (modem sleep) mode of the station.
+    ///
+    /// See [`PowerSaveMode`] for the trade-off between latency and power consumption.
+    pub fn set_power_save(&mut self, mode: PowerSaveMode) -> Result<(), EspError> {
+        esp!(unsafe { esp_wifi_set_ps(mode.into()) })
+    }
 }
 
 unsafe impl Send for WifiDriver<'_> {}
@@ -1849,6 +1906,18 @@ impl<'d> EspWifi<'d> {
 
     pub fn get_rssi(&self) -> Result<i32, EspError> {
         self.driver().get_rssi()
+    }
+
+    /// Get the power saving (modem sleep) mode of the station.
+    pub fn get_power_save(&self) -> Result<PowerSaveMode, EspError> {
+        self.driver().get_power_save()
+    }
+
+    /// Set the power saving (modem sleep) mode of the station.
+    ///
+    /// See [`PowerSaveMode`] for the trade-off between latency and power consumption.
+    pub fn set_power_save(&mut self, mode: PowerSaveMode) -> Result<(), EspError> {
+        self.driver_mut().set_power_save(mode)
     }
 
     /// Get information about the AP with which the station is associated.

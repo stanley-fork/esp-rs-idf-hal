@@ -2207,9 +2207,6 @@ impl TryFrom<u32> for WifiSecondChan {
 }
 
 /// Payload reference for [`WifiEvent::StaNeighborRep`].
-///
-/// The neighbor report bytes are stored in a flexible array member that
-/// immediately follows the fixed header in memory.
 #[cfg(esp_idf_version_at_least_5_3_0)]
 #[repr(transparent)]
 pub struct StaNeighborRepRef(wifi_event_neighbor_report_t);
@@ -2222,16 +2219,32 @@ impl StaNeighborRepRef {
     }
 
     /// The raw neighbor report bytes received from the AP.
-    ///
-    /// The slice is reconstructed from the flexible array member
-    /// (`n_report`) that immediately follows the fixed header in memory.
     pub fn report(&self) -> &[u8] {
-        // SAFETY: `wifi_event_neighbor_report_t` is followed in memory by
-        // exactly `report_len` bytes of report data (the `n_report` FAM).
-        // The pointer arithmetic is safe because `as_payload()` hands us a
-        // reference to the full event payload buffer whose size is at least
-        // `sizeof(wifi_event_neighbor_report_t) + report_len`.
-        unsafe { core::slice::from_raw_parts(self.0.n_report.as_ptr(), self.report_len()) }
+        // Since ESP-IDF 5.3.3 / 5.4.1, the report is stored in a flexible array member
+        // (`n_report`) that immediately follows the fixed header in memory.
+        #[cfg(any(
+            esp_idf_version_patch_at_least_5_3_3,
+            esp_idf_version_patch_at_least_5_4_1,
+            esp_idf_version_at_least_5_5_0
+        ))]
+        {
+            // SAFETY: `wifi_event_neighbor_report_t` is followed in memory by
+            // exactly `report_len` bytes of report data (the `n_report` FAM).
+            // The pointer arithmetic is safe because `as_payload()` hands us a
+            // reference to the full event payload buffer whose size is at least
+            // `sizeof(wifi_event_neighbor_report_t) + report_len`.
+            unsafe { core::slice::from_raw_parts(self.0.n_report.as_ptr(), self.report_len()) }
+        }
+
+        // Before that, the report is stored in a fixed-size array (`report`)
+        #[cfg(not(any(
+            esp_idf_version_patch_at_least_5_3_3,
+            esp_idf_version_patch_at_least_5_4_1,
+            esp_idf_version_at_least_5_5_0
+        )))]
+        {
+            &self.0.report[..self.report_len().min(self.0.report.len())]
+        }
     }
 }
 

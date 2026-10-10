@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Netif: `EspNetif::get_mtu` / `set_mtu` (ESP-IDF v6.0+)
 - mDNS: `EspMdns::enable_netif` / `disable_netif` / `announce_netif`, e.g. for enabling mDNS on an Ethernet netif running a DHCP server, on which mDNS does not enable itself, and `register_netif` / `unregister_netif` for netifs other than ESP-IDF's default ones (`espressif/mdns` component only)
 - Netif: layer 2 bridging between netifs (e.g. Ethernet and a Wi-Fi access point) with `EspNetifBridge`, whose netif is created with the new `NetifStack::Bridge` stack (`NetifConfiguration::bridge_default`); requires `CONFIG_ESP_NETIF_BRIDGE_EN=y`
+- Event loop: `Wait::also` / `AsyncWait::also`, for waiting on events of several sources
 
 ### Fixed
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wi-Fi: fix compilation with ESP-IDF 5.3.0 - 5.3.2 and 5.4.0, where the report of `WifiEvent::StaNeighborRep` is a fixed-size array rather than a flexible array member
 - Wi-Fi: the `pmf_cfg` of a `ClientConfiguration` was ignored, so PMF could not be required
 - Eth: dropping an `EthDriver` did not delete its MAC and PHY, leaking their resources (e.g. the MAC's receive task). With an SPI Ethernet chip on ESP-IDF 5+, the SPI device the MAC had added was left on the bus, so dropping the `SpiDriver` afterwards panicked with "not all CSses freed". The MAC and PHY are now also deleted when the driver fails to initialize
+- Eth, Wi-Fi: `wait_netif_up` of `BlockingEth` / `AsyncEth` timed out with a static IP, as ESP-IDF posts no IP event when a netif comes up with a static IP; `BlockingWifi` / `AsyncWifi` could do the same in a race with ESP-IDF's handling of the STA connecting or the AP starting
 
 ### Breaking
 - TLS: client authentication with a private key kept in hardware - an RSA key used through the Digital Signature peripheral (`EspDsKey`), or an ECDSA key in eFuse used through the ECDSA peripheral (`EspEcdsaKey`, requires `CONFIG_MBEDTLS_HARDWARE_ECDSA_SIGN=y`). `tls::Config`, `http::client::Configuration` and `MqttClientConfiguration` have a new `hw_private_key: Option<HwPrivateKey>` field, which is mutually exclusive with their private key (`ESP_ERR_INVALID_ARG`). `http::client::Configuration` is no longer `Copy`

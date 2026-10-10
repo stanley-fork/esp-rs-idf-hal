@@ -1545,6 +1545,25 @@ impl EthEvent {
     }
 }
 
+/// `ETHERNET_EVENT_CONNECTED` alone.
+///
+/// Handlers subscribed to a specific event run after the ones subscribed to all events of the
+/// same source, and after the ones subscribed to that event earlier - such as the handler with
+/// which ESP-IDF's Ethernet netif glue brings the netif up when the link comes up.
+#[cfg(esp_idf_comp_esp_netif_enabled)]
+struct EthConnectedEvent;
+
+#[cfg(esp_idf_comp_esp_netif_enabled)]
+unsafe impl EspEventSource for EthConnectedEvent {
+    fn source() -> Option<&'static ffi::CStr> {
+        EthEvent::source()
+    }
+
+    fn event_id() -> Option<i32> {
+        Some(eth_event_t_ETHERNET_EVENT_CONNECTED as _)
+    }
+}
+
 unsafe impl EspEventSource for EthEvent {
     fn source() -> Option<&'static ffi::CStr> {
         Some(unsafe { ffi::CStr::from_ptr(ETH_EVENT) })
@@ -1645,7 +1664,12 @@ where
     }
 
     pub fn wait_netif_up(&self) -> Result<(), EspError> {
-        self.ip_wait_while(|| self.eth.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
+        // With a static IP, the netif comes up together with the link, without ESP-IDF posting
+        // an IP event, hence also wake up once the link is up
+        let wait = crate::eventloop::Wait::new::<IpEvent>(&self.event_loop)?
+            .also::<EthConnectedEvent>(&self.event_loop)?;
+
+        wait.wait_while(|| self.eth.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
     }
 
     pub fn ip_wait_while<F: Fn() -> Result<bool, EspError>>(
@@ -1775,7 +1799,13 @@ where
     }
 
     pub async fn wait_netif_up(&mut self) -> Result<(), EspError> {
-        self.ip_wait_while(|this| this.eth.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
+        // With a static IP, the netif comes up together with the link, without ESP-IDF posting
+        // an IP event, hence also wake up once the link is up
+        let mut wait =
+            crate::eventloop::AsyncWait::<IpEvent, _>::new(&self.event_loop, &self.timer_service)?
+                .also::<EthConnectedEvent>(&self.event_loop)?;
+
+        wait.wait_while(|| self.eth.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
             .await
     }
 

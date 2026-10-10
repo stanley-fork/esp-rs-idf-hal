@@ -2551,6 +2551,43 @@ pub enum WifiEvent<'a> {
     Other(i32),
 }
 
+/// `WIFI_EVENT_STA_CONNECTED` alone.
+///
+/// Handlers subscribed to a specific event run after the ones subscribed to all events of the
+/// same source, and after the ones subscribed to that event earlier - such as the handler with
+/// which ESP-IDF's Wi-Fi netif glue brings the STA netif up when the link comes up.
+#[cfg(esp_idf_comp_esp_netif_enabled)]
+struct WifiStaConnectedEvent;
+
+#[cfg(esp_idf_comp_esp_netif_enabled)]
+unsafe impl EspEventSource for WifiStaConnectedEvent {
+    fn source() -> Option<&'static ffi::CStr> {
+        WifiEvent::source()
+    }
+
+    fn event_id() -> Option<i32> {
+        Some(wifi_event_t_WIFI_EVENT_STA_CONNECTED as _)
+    }
+}
+
+/// `WIFI_EVENT_AP_START` alone.
+///
+/// As [`WifiStaConnectedEvent`], but for the handler with which ESP-IDF's Wi-Fi netif glue
+/// brings the AP netif up when the access point starts.
+#[cfg(all(esp_idf_comp_esp_netif_enabled, esp_idf_esp_wifi_softap_support))]
+struct WifiApStartEvent;
+
+#[cfg(all(esp_idf_comp_esp_netif_enabled, esp_idf_esp_wifi_softap_support))]
+unsafe impl EspEventSource for WifiApStartEvent {
+    fn source() -> Option<&'static ffi::CStr> {
+        WifiEvent::source()
+    }
+
+    fn event_id() -> Option<i32> {
+        Some(wifi_event_t_WIFI_EVENT_AP_START as _)
+    }
+}
+
 unsafe impl EspEventSource for WifiEvent<'_> {
     fn source() -> Option<&'static ffi::CStr> {
         Some(unsafe { ffi::CStr::from_ptr(WIFI_EVENT) })
@@ -2865,7 +2902,15 @@ where
 
     /// Waits until the underlaying network interface is up.
     pub fn wait_netif_up(&self) -> Result<(), EspError> {
-        self.ip_wait_while(|| self.wifi.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
+        // With a static IP, a netif comes up together with the link (or the access point),
+        // without ESP-IDF posting an IP event, hence also wake up once that happened
+        let wait = Wait::new::<IpEvent>(&self.event_loop)?
+            .also::<WifiStaConnectedEvent>(&self.event_loop)?;
+
+        #[cfg(esp_idf_esp_wifi_softap_support)]
+        let wait = wait.also::<WifiApStartEvent>(&self.event_loop)?;
+
+        wait.wait_while(|| self.wifi.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
     }
 
     /// As [`BlockingWifi::wifi_wait_while()`], but for `EspWifi` events
@@ -3120,7 +3165,18 @@ where
 
     /// Waits until the underlaying network interface is up.
     pub async fn wait_netif_up(&mut self) -> Result<(), EspError> {
-        self.ip_wait_while(|this| this.wifi.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
+        // With a static IP, a netif comes up together with the link (or the access point),
+        // without ESP-IDF posting an IP event, hence also wake up once that happened
+        let wait =
+            crate::eventloop::AsyncWait::<IpEvent, _>::new(&self.event_loop, &self.timer_service)?
+                .also::<WifiStaConnectedEvent>(&self.event_loop)?;
+
+        #[cfg(esp_idf_esp_wifi_softap_support)]
+        let wait = wait.also::<WifiApStartEvent>(&self.event_loop)?;
+
+        let mut wait = wait;
+
+        wait.wait_while(|| self.wifi.is_up().map(|s| !s), Some(CONNECT_TIMEOUT))
             .await
     }
 

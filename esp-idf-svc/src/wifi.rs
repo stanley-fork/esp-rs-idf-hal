@@ -190,9 +190,15 @@ impl TryFrom<&ClientConfiguration> for Newtype<wifi_sta_config_t> {
                 authmode: Newtype::<wifi_auth_mode_t>::from(conf.auth_method).0,
                 ..Default::default()
             },
-            pmf_cfg: wifi_pmf_config_t {
-                capable: false,
-                required: false,
+            pmf_cfg: match conf.pmf_cfg {
+                PmfConfiguration::NotCapable => wifi_pmf_config_t {
+                    capable: false,
+                    required: false,
+                },
+                PmfConfiguration::Capable { required } => wifi_pmf_config_t {
+                    capable: true,
+                    required,
+                },
             },
             ..Default::default()
         };

@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ping: the address of a reply (logged, and reported in `Info::addr`) was byte-swapped, and with `CONFIG_LWIP_IPV6=n` the echo requests were sent to the byte-swapped address
 - TLS: the keep-alive and PSK settings of `tls::Config` were passed to ESP-IDF as pointers to temporaries which no longer existed when ESP-IDF read them while connecting
 - Wi-Fi: fix compilation with ESP-IDF 5.3.0 - 5.3.2 and 5.4.0, where the report of `WifiEvent::StaNeighborRep` is a fixed-size array rather than a flexible array member
+- Wi-Fi: the `pmf_cfg` of a `ClientConfiguration` was ignored, so PMF could not be required
 - Eth: dropping an `EthDriver` did not delete its MAC and PHY, leaking their resources (e.g. the MAC's receive task). With an SPI Ethernet chip on ESP-IDF 5+, the SPI device the MAC had added was left on the bus, so dropping the `SpiDriver` afterwards panicked with "not all CSses freed". The MAC and PHY are now also deleted when the driver fails to initialize
 
 ### Breaking

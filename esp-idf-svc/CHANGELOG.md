@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ble: esp32s31 support (NimBLE, BLE-only controller mode)
 - Netif: add an asynchronous PPP byte-stream bridge for `EspNetifDriver`.
 - Netif: `EspNetif::get_mtu` / `set_mtu` (ESP-IDF v6.0+)
+- mDNS: `EspMdns::enable_netif` / `disable_netif` / `announce_netif`, e.g. for enabling mDNS on an Ethernet netif running a DHCP server, on which mDNS does not enable itself, and `register_netif` / `unregister_netif` for netifs other than ESP-IDF's default ones (`espressif/mdns` component only)
 
 ### Fixed
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.

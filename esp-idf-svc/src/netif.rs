@@ -45,6 +45,42 @@ pub enum NetifStack {
     Slip,
     #[cfg(all(esp_idf_comp_openthread_enabled, esp_idf_openthread_enabled,))]
     Thread,
+    /// Layer 2 bridge between other netifs (see [`EspNetifBridge`])
+    #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+    Bridge(BridgeConfiguration),
+}
+
+/// Configuration of a bridge netif (see [`NetifStack::Bridge`] and [`EspNetifBridge`]).
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Hash))]
+pub struct BridgeConfiguration {
+    /// Maximum number of entries in the dynamic forwarding database
+    pub max_fdb_dyn_entries: u16,
+    /// Maximum number of entries in the static forwarding database
+    pub max_fdb_sta_entries: u16,
+    /// Maximum number of ports of the bridge
+    pub max_ports: u8,
+}
+
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+impl BridgeConfiguration {
+    /// Create a configuration with the default values, which allow for an Ethernet and a
+    /// Wi-Fi access point port.
+    pub const fn new() -> Self {
+        Self {
+            max_fdb_dyn_entries: 10,
+            max_fdb_sta_entries: 2,
+            max_ports: 2,
+        }
+    }
+}
+
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+impl Default for BridgeConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NetifStack {
@@ -74,6 +110,11 @@ impl NetifStack {
             Self::Slip => NetifConfiguration::slip_default_client(),
             #[cfg(all(esp_idf_comp_openthread_enabled, esp_idf_openthread_enabled,))]
             Self::Thread => NetifConfiguration::thread_default(),
+            #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+            Self::Bridge(_) => NetifConfiguration {
+                stack: *self,
+                ..NetifConfiguration::bridge_default()
+            },
         }
     }
 
@@ -113,6 +154,9 @@ impl NetifStack {
             #[cfg(esp_idf_esp_wifi_softap_support)]
             Self::Ap => Some(esp_mac_type_t_ESP_MAC_WIFI_SOFTAP),
             Self::Eth => Some(esp_mac_type_t_ESP_MAC_ETH),
+            // The bridge shares the MAC address of its Ethernet port(s)
+            #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+            Self::Bridge(_) => Some(esp_mac_type_t_ESP_MAC_ETH),
             #[cfg(all(esp_idf_comp_openthread_enabled, esp_idf_openthread_enabled,))]
             Self::Thread => {
                 #[cfg(esp_idf_soc_ieee802154_supported)]
@@ -151,6 +195,8 @@ impl NetifStack {
                     not(esp_idf_version_major = "4")
                 ))]
                 Self::Thread => &g_esp_netif_netstack_default_openthread,
+                #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+                Self::Bridge(_) => _g_esp_netif_netstack_default_br,
             }
         }
     }
@@ -170,6 +216,26 @@ pub struct NetifConfiguration {
 }
 
 impl NetifConfiguration {
+    /// The default configuration of a bridge netif, which gets its IP configuration as a DHCP
+    /// client (see [`EspNetifBridge`]).
+    #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+    pub fn bridge_default() -> Self {
+        Self {
+            flags: esp_netif_flags_ESP_NETIF_FLAG_GARP
+                | esp_netif_flags_ESP_NETIF_FLAG_EVENT_IP_MODIFIED,
+            got_ip_event_id: NonZeroU32::new(ip_event_t_IP_EVENT_ETH_GOT_IP as _),
+            lost_ip_event_id: NonZeroU32::new(ip_event_t_IP_EVENT_ETH_LOST_IP as _),
+            key: "BR0".try_into().unwrap(),
+            description: "br0".try_into().unwrap(),
+            route_priority: 70,
+            ip_configuration: default_ip_configuration(ipv4::Configuration::Client(
+                Default::default(),
+            )),
+            stack: NetifStack::Bridge(BridgeConfiguration::new()),
+            custom_mac: None,
+        }
+    }
+
     pub fn eth_default_client() -> Self {
         Self {
             flags: esp_netif_flags_ESP_NETIF_FLAG_GARP
@@ -488,6 +554,21 @@ impl EspNetif {
             esp_inherent_config.ip_info = ip_info;
         }
 
+        // ESP-IDF copies the bridge configuration when creating the netif
+        #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+        let mut bridge_info: bridgeif_config_t;
+        #[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+        if let NetifStack::Bridge(bridge_conf) = conf.stack {
+            bridge_info = bridgeif_config_t {
+                max_fdb_dyn_entries: bridge_conf.max_fdb_dyn_entries,
+                max_fdb_sta_entries: bridge_conf.max_fdb_sta_entries,
+                max_ports: bridge_conf.max_ports,
+            };
+
+            esp_inherent_config.flags |= esp_netif_flags_ESP_NETIF_FLAG_IS_BRIDGE;
+            esp_inherent_config.bridge_info = &mut bridge_info;
+        }
+
         let cfg = esp_netif_config_t {
             base: &esp_inherent_config,
             driver: ptr::null(),
@@ -735,6 +816,97 @@ impl RawHandle for EspNetif {
         self.handle
     }
 }
+
+/// A layer 2 bridge between netifs (its ports), e.g. between Ethernet and a Wi-Fi access point.
+///
+/// The bridge has a netif of its own, created with [`NetifStack::Bridge`] (see
+/// [`NetifConfiguration::bridge_default`]): it is this netif which gets the IP configuration of
+/// the device, while the netifs of the ports only pass frames to and from the bridge.
+///
+/// As in ESP-IDF's bridge example:
+/// - The netifs of the ports should have no IP configuration (`ip_configuration: None`), so
+///   that they run neither a DHCP client nor a DHCP server
+/// - The Ethernet ports should share their MAC address with the bridge netif, and should be in
+///   promiscuous mode (see [`EthDriver::set_promiscuous`](crate::eth::EthDriver::set_promiscuous))
+/// - Ports have to be added before they are started; the bridge starts with its first port
+///
+/// Requires `CONFIG_ESP_NETIF_BRIDGE_EN=y` and `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1`.
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+pub struct EspNetifBridge {
+    glue: esp_netif_br_glue_handle_t,
+    netif: EspNetif,
+}
+
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+impl EspNetifBridge {
+    /// Create a bridge with the given bridge netif.
+    ///
+    /// Returns `ESP_ERR_INVALID_ARG` if the netif was not created with [`NetifStack::Bridge`].
+    pub fn new(netif: EspNetif) -> Result<Self, EspError> {
+        if unsafe { esp_netif_get_flags(netif.handle) } & esp_netif_flags_ESP_NETIF_FLAG_IS_BRIDGE
+            == 0
+        {
+            return Err(EspError::from_infallible::<ESP_ERR_INVALID_ARG>());
+        }
+
+        let glue = unsafe { esp_netif_br_glue_new() };
+        if glue.is_null() {
+            return Err(EspError::from_infallible::<ESP_ERR_NO_MEM>());
+        }
+
+        // The bridge netif has to be attached before any of the ports starts
+        if let Err(err) = esp!(unsafe { esp_netif_attach(netif.handle, glue as *mut _) }) {
+            unsafe { esp_netif_br_glue_del(glue) };
+
+            return Err(err);
+        }
+
+        Ok(Self { glue, netif })
+    }
+
+    /// Add a netif - e.g. the netif of an Ethernet driver - as a port of the bridge.
+    ///
+    /// # Safety
+    ///
+    /// The bridge keeps a pointer to the netif, so the netif must not be dropped before the
+    /// bridge.
+    pub unsafe fn add_port(&mut self, netif: &EspNetif) -> Result<(), EspError> {
+        esp!(esp_netif_br_glue_add_port(self.glue, netif.handle))
+    }
+
+    /// Add the netif of the Wi-Fi access point as a port of the bridge.
+    ///
+    /// A bridge can have only one Wi-Fi port, and it has to be the access point netif.
+    ///
+    /// # Safety
+    ///
+    /// The bridge keeps a pointer to the netif, so the netif must not be dropped before the
+    /// bridge.
+    pub unsafe fn add_wifi_port(&mut self, netif: &EspNetif) -> Result<(), EspError> {
+        esp!(esp_netif_br_glue_add_wifi_port(self.glue, netif.handle))
+    }
+
+    /// Return the bridge netif.
+    pub fn netif(&self) -> &EspNetif {
+        &self.netif
+    }
+
+    /// Return the bridge netif.
+    pub fn netif_mut(&mut self) -> &mut EspNetif {
+        &mut self.netif
+    }
+}
+
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+impl Drop for EspNetifBridge {
+    fn drop(&mut self) {
+        // Stops the bridge netif, so it has to happen before the netif is destroyed
+        unsafe { esp_netif_br_glue_del(self.glue) };
+    }
+}
+
+#[cfg(all(esp_idf_esp_netif_tcpip_lwip, esp_idf_esp_netif_bridge_en))]
+unsafe impl Send for EspNetifBridge {}
 
 #[derive(Copy, Clone)]
 pub struct ApStaIpAssignment<'a>(&'a ip_event_ap_staipassigned_t);

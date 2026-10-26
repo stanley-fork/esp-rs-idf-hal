@@ -87,6 +87,21 @@ macro_rules! check_types_manually {
     };
 }
 
+macro_rules! check_fields {
+    ($ident:ident, $($field:ident),+ $(,)?) => {
+        $(
+            const _: () = {
+                compile_assert!(
+                    std::mem::offset_of!(sys::$ident, $field) == std::mem::offset_of!(libc::$ident, $field),
+                    "libc/esp-idf-sys field offset mismatch for `", stringify!($ident), "::", stringify!($field),
+                    "`: esp-idf=", std::mem::offset_of!(sys::$ident, $field) => fmt::<usize>(),
+                    " libc=", std::mem::offset_of!(libc::$ident, $field) => fmt::<usize>()
+                );
+            };
+        )+
+    };
+}
+
 // Most of these tests can be generated with from rust-lang/libc tree, with:
 // sed -n 's/.*pub type \(.*\) = .*/check_types!(\1);/p' mod.rs | uniq
 // sed -n 's/.*pub struct \(.*\) {.*/check_types!(\1);/p' mod.rs | uniq
@@ -224,6 +239,15 @@ check_types!(ip_mreq);
 check_types!(in_addr);
 //check_types!(lconv); // No binding
 check_types!(tm);
+check_types!(stat);
+// The `st_{a,m,c}tim` timestamps are named differently across libc 0.2 releases,
+// so only the fields around them are checked
+check_fields!(
+    stat, st_dev, st_ino, st_mode, st_nlink, st_uid, st_gid, st_rdev, st_size, st_blksize,
+    st_blocks, st_spare4
+);
+check_types!(dirent);
+check_fields!(dirent, d_ino, d_type, d_name);
 #[cfg(not(esp_idf_libc_picolibc))]
 check_types!(sigaction);
 #[cfg(not(esp_idf_libc_picolibc))]

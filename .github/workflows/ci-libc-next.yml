@@ -1,0 +1,89 @@
+name: CILibcNext
+
+# Builds `esp-idf-sys` - and with it `std` - against the unreleased `libc-0.2` branch of
+# rust-lang/libc, so that a libc change breaking `std` or the compile-time checks in
+# `esp-idf-sys/src/checks/libc.rs` shows up before it is published.
+# The `[patch]` is passed with `--config`, as only a config-level patch reaches `-Zbuild-std`.
+
+on:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: "50 6 * * *"
+  workflow_dispatch:
+
+# A new run for the same branch or PR cancels the one still in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  rust_toolchain: nightly
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  compile:
+    name: "libc-0.2 / ${{ matrix.target }} / ${{ matrix.idf-version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - riscv32imc-esp-espidf
+          - xtensa-esp32-espidf
+        # newlib and picolibc
+        idf-version:
+          - v5.5.5
+          - v6.1
+        include:
+          # 32-bit `time_t`
+          - target: riscv32imc-esp-espidf
+            idf-version: v4.4.8
+    env:
+      ESP_IDF_VERSION: ${{ matrix.idf-version }}
+      RUSTFLAGS: "${{ startsWith(matrix.idf-version, 'v4') && '--cfg espidf_time32' || '--cfg espidf_time64' }}"
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup | Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/powershell
+          df -h /
+
+      # The toolchains are installed by hand rather than with the dtolnay/rust-toolchain and
+      # esp-rs/xtensa-toolchain actions, so that their downloads can be retried: they fail
+      # now and then on a reset connection, and composite actions cannot be wrapped in a retry
+      - name: Setup | Rust
+        if: matrix.target == 'riscv32imc-esp-espidf'
+        run: |
+          .github/retry.sh rustup toolchain install ${{ env.rust_toolchain }} --profile minimal --component rust-src
+          rustup default ${{ env.rust_toolchain }}
+
+      - name: Setup | Rust for Xtensa
+        if: matrix.target != 'riscv32imc-esp-espidf'
+        run: |
+          host=$(rustup show | grep "Default host" | sed -e 's/.* //')
+          .github/retry.sh curl -sSfL https://github.com/esp-rs/espup/releases/latest/download/espup-$host -o "$HOME/.cargo/bin/espup"
+          chmod +x "$HOME/.cargo/bin/espup"
+          # A failed install must not leave a partial toolchain behind for the next attempt to skip
+          export ESPUP_EXPORT_FILE="$HOME/exports"
+          for attempt in 1 2 3; do
+            rm -rf "$HOME/.rustup/toolchains/esp"
+            "$HOME/.cargo/bin/espup" install -l debug --targets esp32,esp32s2,esp32s3 && break
+            [ "$attempt" -lt 3 ] && { echo "::warning::espup install attempt $attempt failed; retrying in 20s"; sleep 20; } || exit 1
+          done
+          source "$ESPUP_EXPORT_FILE"
+          echo "$PATH" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=${LIBCLANG_PATH}" >> "$GITHUB_ENV"
+          echo "CLANG_PATH=${CLANG_PATH}" >> "$GITHUB_ENV"
+          rustup default esp
+
+      - name: Build | Compile esp-idf-sys and std against libc-0.2
+        run: >-
+          cargo build -p esp-idf-sys --target ${{ matrix.target }} -Zbuild-std=std,panic_abort
+          --config 'patch.crates-io.libc.git="https://github.com/rust-lang/libc"'
+          --config 'patch.crates-io.libc.branch="libc-0.2"'

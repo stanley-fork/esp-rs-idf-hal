@@ -249,7 +249,11 @@
 #include "esp_openthread_lock.h"
 #include "esp_openthread_netif_glue.h"
 #include "esp_openthread_types.h"
+#include "openthread/child_supervision.h"
 #include "openthread/dataset.h"
+#ifdef CONFIG_OPENTHREAD_DNS_CLIENT
+#include "openthread/dns_client.h"
+#endif
 #include "openthread/instance.h"
 #include "openthread/ip6.h"
 #include "openthread/joiner.h"

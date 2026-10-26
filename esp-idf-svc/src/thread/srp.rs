@@ -4,6 +4,8 @@ use core::marker::PhantomData;
 use core::net::{Ipv6Addr, SocketAddrV6};
 use core::ptr::addr_of_mut;
 
+use alloc::sync::Arc;
+
 use ::log::{debug, info, trace, warn};
 
 use crate::sys::{
@@ -33,6 +35,7 @@ use crate::sys::{
     otSrpClientSetTtl,
 };
 
+use crate::hal::task::asynch::Notification;
 use crate::thread::{ot_esp, ot_esp_err, EspThread, Mode, NetifMode, ThreadDriver};
 
 /// The unique ID of a registered SRP service
@@ -579,6 +582,16 @@ where
         Ok((!addr.ip().is_unspecified()).then_some(addr))
     }
 
+    /// Wait until the state of the SRP client changes: a server was found
+    /// or lost (in auto-start mode), or the registrations changed.
+    ///
+    /// Changes since the previous call count too. Single waiter.
+    pub async fn srp_wait_changed(&self) {
+        let changed = self.inner().srp.changed.clone();
+
+        changed.wait().await;
+    }
+
     /// Iterate over the SRP services registered with the SRP client.
     ///
     /// Arguments:
@@ -808,6 +821,14 @@ where
         self.driver().srp_server_addr()
     }
 
+    /// Wait until the state of the SRP client changes: a server was found
+    /// or lost (in auto-start mode), or the registrations changed.
+    ///
+    /// Changes since the previous call count too. Single waiter.
+    pub async fn srp_wait_changed(&self) {
+        self.driver().srp_wait_changed().await
+    }
+
     /// Iterate over the SRP services registered with the SRP client.
     ///
     /// Arguments:
@@ -892,6 +913,7 @@ pub(crate) struct OtSrp {
     conf_taken: bool,
     conf_buf: [u8; SRP_HOST_BUF_SIZE],
     services: [OtSrpService; SRP_SVCS],
+    changed: Arc<Notification>,
 }
 
 impl OtSrp {
@@ -899,6 +921,7 @@ impl OtSrp {
         unsafe {
             addr_of_mut!((*this).conf_taken).write(false);
             addr_of_mut!((*this).conf_buf).write_bytes(0, 1);
+            addr_of_mut!((*this).changed).write(Arc::new(Notification::new()));
 
             for index in 0..SRP_SVCS {
                 let service = addr_of_mut!((*this).services[index]);
@@ -969,10 +992,12 @@ impl OtSrp {
         }
 
         self.cleanup(host_info, removed_services);
+
+        self.changed.notify_lsb();
     }
 
     fn plat_srp_auto_started(&mut self) {
-        // TODO - in future, consider if we need to signal the changes here
+        self.changed.notify_lsb();
     }
 
     pub(crate) unsafe extern "C" fn plat_c_srp_state_change_callback(

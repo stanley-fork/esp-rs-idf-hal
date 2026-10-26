@@ -31,11 +31,15 @@ use crate::sys::*;
 use crate::thread::srp::OtSrp;
 
 pub use diag::*;
+#[cfg(all(esp_idf_openthread_dns_client, not(esp_idf_version_major = "4")))]
+pub use dns::*;
 pub use srp::*;
 
 extern crate alloc;
 
 mod diag;
+#[cfg(all(esp_idf_openthread_dns_client, not(esp_idf_version_major = "4")))]
+mod dns;
 mod srp;
 
 /// A trait shared between the `Host` and `RCP` modes providing the option for these
@@ -374,6 +378,59 @@ impl<'d> ThreadDriver<'d, Host> {
         let _lock = self.inner();
 
         Ok(unsafe { otThreadGetDeviceRole(esp_openthread_get_instance()) }.into())
+    }
+
+    /// Set the MLE link mode of the device
+    ///
+    /// A Sleepy End Device keeps its receiver off when idle, is a Minimal Thread
+    /// Device, and only needs the stable network data: `set_link_mode(false, false, false)`.
+    ///
+    /// Arguments:
+    /// - `rx_on_when_idle`: Whether the receiver is on while the device is idle.
+    /// - `full_thread_device`: Whether the device is a Full Thread Device.
+    /// - `full_network_data`: Whether the device needs the full network data, rather than the stable subset.
+    pub fn set_link_mode(
+        &self,
+        rx_on_when_idle: bool,
+        full_thread_device: bool,
+        full_network_data: bool,
+    ) -> Result<(), EspError> {
+        let _lock = self.inner();
+
+        let mut mode: otLinkModeConfig = unsafe { core::mem::zeroed() };
+        mode.set_mRxOnWhenIdle(rx_on_when_idle);
+        mode.set_mDeviceType(full_thread_device);
+        mode.set_mNetworkData(full_network_data);
+
+        ot_esp!(unsafe { otThreadSetLinkMode(esp_openthread_get_instance(), mode) })
+    }
+
+    /// Set how often a Sleepy End Device polls its parent, in milliseconds;
+    /// `0` restores the OpenThread default
+    pub fn set_poll_period(&self, period_ms: u32) -> Result<(), EspError> {
+        let _lock = self.inner();
+
+        ot_esp!(unsafe { otLinkSetPollPeriod(esp_openthread_get_instance(), period_ms) })
+    }
+
+    /// Set the timeout, in seconds, after which the parent drops this device
+    /// as its child unless it hears from it
+    pub fn set_child_timeout(&self, timeout_s: u32) -> Result<(), EspError> {
+        let _lock = self.inner();
+
+        unsafe { otThreadSetChildTimeout(esp_openthread_get_instance(), timeout_s) };
+
+        Ok(())
+    }
+
+    /// Set how long, in seconds, a child goes without hearing from its parent
+    /// before it re-attaches to it with a Child Update Request
+    pub fn set_child_supervision_check_timeout(&self, timeout_s: u16) -> Result<(), EspError> {
+        let _lock = self.inner();
+
+        unsafe { otChildSupervisionSetCheckTimeout(esp_openthread_get_instance(), timeout_s) };
+
+        Ok(())
     }
 
     /// Initialize the Thread command-line interface (CLI) for debugging purposes.
@@ -1780,6 +1837,43 @@ where
     /// Retrieve the current role of the device in the Thread network
     pub fn role(&self) -> Result<Role, EspError> {
         self.driver().role()
+    }
+
+    /// Set the MLE link mode of the device
+    ///
+    /// A Sleepy End Device keeps its receiver off when idle, is a Minimal Thread
+    /// Device, and only needs the stable network data: `set_link_mode(false, false, false)`.
+    ///
+    /// Arguments:
+    /// - `rx_on_when_idle`: Whether the receiver is on while the device is idle.
+    /// - `full_thread_device`: Whether the device is a Full Thread Device.
+    /// - `full_network_data`: Whether the device needs the full network data, rather than the stable subset.
+    pub fn set_link_mode(
+        &self,
+        rx_on_when_idle: bool,
+        full_thread_device: bool,
+        full_network_data: bool,
+    ) -> Result<(), EspError> {
+        self.driver()
+            .set_link_mode(rx_on_when_idle, full_thread_device, full_network_data)
+    }
+
+    /// Set how often a Sleepy End Device polls its parent, in milliseconds;
+    /// `0` restores the OpenThread default
+    pub fn set_poll_period(&self, period_ms: u32) -> Result<(), EspError> {
+        self.driver().set_poll_period(period_ms)
+    }
+
+    /// Set the timeout, in seconds, after which the parent drops this device
+    /// as its child unless it hears from it
+    pub fn set_child_timeout(&self, timeout_s: u32) -> Result<(), EspError> {
+        self.driver().set_child_timeout(timeout_s)
+    }
+
+    /// Set how long, in seconds, a child goes without hearing from its parent
+    /// before it re-attaches to it with a Child Update Request
+    pub fn set_child_supervision_check_timeout(&self, timeout_s: u16) -> Result<(), EspError> {
+        self.driver().set_child_supervision_check_timeout(timeout_s)
     }
 
     /// Retrieve the active TOD (Thread Operational Dataset) in the user-supplied buffer

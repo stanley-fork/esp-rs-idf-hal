@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Thread: a DNS client for DNS-SD, `dns_resolve_service_and_host_address` and `dns_browse` (with `CONFIG_OPENTHREAD_DNS_CLIENT`)
+- Thread: `srp_wait_changed`, to wait for the SRP client to find or lose a server
+- Thread: Sleepy End Device controls `set_link_mode`, `set_poll_period`, `set_child_timeout` and `set_child_supervision_check_timeout`
 - Thread: diagnostics of the local node - network parameters, neighbor and route tables, Operational Datasets, MLE and MAC counters
 - Eth: `EthDriver::get_speed` / `get_duplex` (and on `EspEth`)
 - Wi-Fi: `WifiDriver::get_negotiated_phy_mode` (and on `EspWifi`)

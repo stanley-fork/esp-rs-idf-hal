@@ -312,6 +312,12 @@ The following configuration options are available:
 
   The currently detected environment variables that might be problematic are as follows: `CC`, `CXX`, `CFLAGS`, `CCFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `GCC_EXEC_PREFIX`, `COMPILER_PATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH`.
 
+- ### `$ESP_IDF_LIBC_MISMATCHES`
+
+  What should happen to the known mismatches between the ESP-IDF bindings and the `libc` crate (listed in `build/libc_checks.rs`) in the compile-time checks of `esp-idf-sys`. Possible values:
+  * `ignore` (default) - Do not check them
+  * `err` - Check them as well, failing the build
+
 - ### *`esp_idf_espup_clang_symlink`*, `$ESP_IDF_ESPUP_CLANG_SYMLINK`
 
   Background:

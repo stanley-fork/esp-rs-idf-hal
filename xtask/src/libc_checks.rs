@@ -75,7 +75,7 @@ pub struct LibcChecks {
     cfgs: Vec<String>,
 }
 
-/// The public structs, other types and integer constants of an expanded `libc`
+/// The public structs, other types, integer constants and functions of an expanded `libc`
 #[derive(Default)]
 struct Items {
     /// Struct name -> its public named fields, in declaration order
@@ -86,6 +86,8 @@ struct Items {
     consts: BTreeMap<String, syn::Type>,
     /// Type alias name -> the aliased type
     aliases: BTreeMap<String, syn::Type>,
+    /// Function name -> its symbol (the `link_name`, if any)
+    fns: BTreeMap<String, String>,
 }
 
 impl Items {
@@ -177,6 +179,28 @@ impl<'ast> Visit<'ast> for Items {
                 .insert(item.ident.to_string(), (*item.ty).clone());
         }
     }
+
+    fn visit_foreign_item_fn(&mut self, item: &'ast syn::ForeignItemFn) {
+        if !is_pub(&item.vis) {
+            return;
+        }
+
+        let name = item.sig.ident.to_string();
+        let symbol = item
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("link_name"))
+            .find_map(|attr| match &attr.meta.require_name_value().ok()?.value {
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(symbol),
+                    ..
+                }) => Some(symbol.value()),
+                _ => None,
+            })
+            .unwrap_or_else(|| name.clone());
+
+        self.fns.insert(name, symbol);
+    }
 }
 
 pub fn run(args: LibcChecks) -> Result<()> {
@@ -232,6 +256,7 @@ fn inventory(libcs: &[Items]) -> String {
     let structs = in_all(|items| items.structs.keys().map(String::as_str).collect());
     let types = in_all(Items::all_types);
     let consts = in_all(Items::int_consts);
+    let fns = in_all(|items| items.fns.keys().map(String::as_str).collect());
 
     let mut out = HEADER.to_string();
 
@@ -261,6 +286,16 @@ fn inventory(libcs: &[Items]) -> String {
 
     for name in &consts {
         out.push_str(&format!("{name:?},\n"));
+    }
+
+    out.push_str("];\n\n/// `(name, symbol)`\npub const FNS: &[(&str, &str)] = &[\n");
+
+    for name in &fns {
+        let symbol = &libcs[0].fns[*name];
+
+        if libcs.iter().all(|items| &items.fns[*name] == symbol) {
+            out.push_str(&format!("({name:?}, {symbol:?}),\n"));
+        }
     }
 
     out.push_str("];\n");

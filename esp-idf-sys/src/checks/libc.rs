@@ -1,4 +1,4 @@
-//! Compile-time checks that ESP-IDF bindgen types and constants match libc definitions.
+//! Compile-time checks that ESP-IDF bindgen types, constants and functions match libc definitions.
 //! If any of these checks fail, it is likely you need to update `libc` pinned version
 //! to the latest one.
 //!
@@ -7,8 +7,11 @@
 //! (which `cargo xtask libc-checks` generates). The known mismatches are listed there as well.
 //! The items checked here by hand are named differently in `libc` and in ESP-IDF.
 
+// Deprecated `libc` items are checked as well
+#![allow(deprecated)]
+
 use crate as sys;
-use compile_fmt::{compile_assert, fmt};
+use compile_fmt::{clip, compile_assert, fmt};
 
 macro_rules! check_constants {
     ($ident:ident) => {
@@ -55,6 +58,24 @@ macro_rules! check_types {
     };
 }
 
+/// `check_types!`, and the signedness of the integer type
+macro_rules! check_int_types {
+    ($ident:ident) => {
+        check_types!($ident);
+
+        const _: () = {
+            let sys_signed = <sys::$ident as Signedness>::SIGNED;
+            let libc_signed = <libc::$ident as Signedness>::SIGNED;
+            compile_assert!(
+                same_signedness(sys_signed, libc_signed),
+                "libc/esp-idf-sys type mismatch for `", stringify!($ident), "` signedness: esp-idf=",
+                signedness(sys_signed) => clip(14, ""),
+                " libc=", signedness(libc_signed) => clip(14, "")
+            );
+        };
+    };
+}
+
 macro_rules! check_types_manually {
     ($name:literal, $size1:expr, $size2:expr, $align1:expr, $align2:expr) => {
         const _: () = {
@@ -74,6 +95,7 @@ macro_rules! check_types_manually {
     };
 }
 
+/// The offsets and the sizes of the fields
 macro_rules! check_fields {
     ($ident:ident, $($field:ident),+ $(,)?) => {
         $(
@@ -84,9 +106,273 @@ macro_rules! check_fields {
                     "`: esp-idf=", std::mem::offset_of!(sys::$ident, $field) => fmt::<usize>(),
                     " libc=", std::mem::offset_of!(libc::$ident, $field) => fmt::<usize>()
                 );
+
+                let sys_size = field_size(|s: *const sys::$ident| unsafe { &raw const (*s).$field });
+                let libc_size = field_size(|s: *const libc::$ident| unsafe { &raw const (*s).$field });
+                compile_assert!(
+                    sys_size == libc_size,
+                    "libc/esp-idf-sys field size mismatch for `", stringify!($ident), "::", stringify!($field),
+                    "`: esp-idf=", sys_size => fmt::<usize>(),
+                    " libc=", libc_size => fmt::<usize>()
+                );
             };
         )+
     };
+}
+
+/// `check_fields!`, and the signedness of the integer fields
+macro_rules! check_int_fields {
+    ($ident:ident, $($field:ident),+ $(,)?) => {
+        check_fields!($ident, $($field),+);
+
+        $(
+            const _: () = {
+                let sys_signed = field_signedness(|s: *const sys::$ident| unsafe { &raw const (*s).$field });
+                let libc_signed = field_signedness(|s: *const libc::$ident| unsafe { &raw const (*s).$field });
+                compile_assert!(
+                    same_signedness(sys_signed, libc_signed),
+                    "libc/esp-idf-sys field signedness mismatch for `", stringify!($ident), "::", stringify!($field),
+                    "`: esp-idf=", signedness(sys_signed) => clip(14, ""),
+                    " libc=", signedness(libc_signed) => clip(14, "")
+                );
+            };
+        )+
+    };
+}
+
+/// The symbol which `libc` links the function to, and the one which the ESP-IDF headers do
+// Generated only for differing symbols
+#[allow(unused_macros)]
+macro_rules! check_symbols {
+    ($name:ident, $libc:literal, $sys:literal) => {
+        const _: () = {
+            compile_assert!(
+                same_str($sys, $libc),
+                "libc/esp-idf-sys function mismatch for `",
+                stringify!($name),
+                "` symbol: esp-idf=",
+                $sys,
+                " libc=",
+                $libc
+            );
+        };
+    };
+}
+
+/// The function of `libc` against the ESP-IDF one `$sys`, which takes `$args` (`_` per argument,
+/// then `...` if variadic): the sizes of the arguments and of the return value, and the signedness
+/// of the integer `$ints` (argument indices, `ret` for the return value).
+///
+/// Another number of arguments, or variadic-ness, fails the casts to the function pointer type.
+macro_rules! check_functions {
+    ($name:ident, $sys:ident, ($($args:tt)*), [$($ints:tt),*]) => {
+        const _: () = {
+            let sys_fn = sys::$sys as unsafe extern "C" fn($($args)*) -> _;
+            let libc_fn = libc::$name as unsafe extern "C" fn($($args)*) -> _;
+
+            let (sys_size, libc_size) = (ret_size(sys_fn), ret_size(libc_fn));
+            compile_assert!(
+                sys_size == libc_size,
+                "libc/esp-idf-sys function mismatch for `", stringify!($name), "` return size: esp-idf=",
+                sys_size => fmt::<usize>(),
+                " libc=", libc_size => fmt::<usize>()
+            );
+
+            let (sys_sizes, libc_sizes) = (arg_sizes(sys_fn), arg_sizes(libc_fn));
+            let mut index = 0;
+            while index < sys_sizes.len() {
+                compile_assert!(
+                    sys_sizes[index] == libc_sizes[index],
+                    "libc/esp-idf-sys function mismatch for `", stringify!($name), "` argument ",
+                    index => fmt::<usize>(), " size: esp-idf=", sys_sizes[index] => fmt::<usize>(),
+                    " libc=", libc_sizes[index] => fmt::<usize>()
+                );
+                index += 1;
+            }
+
+            $(check_functions!(@signedness $name, sys_fn, libc_fn, $ints);)*
+        };
+    };
+    (@signedness $name:ident, $sys_fn:ident, $libc_fn:ident, ret) => {
+        let (sys_signed, libc_signed) = (ret_signedness($sys_fn), ret_signedness($libc_fn));
+        compile_assert!(
+            same_signedness(sys_signed, libc_signed),
+            "libc/esp-idf-sys function mismatch for `", stringify!($name), "` return signedness: esp-idf=",
+            signedness(sys_signed) => clip(14, ""),
+            " libc=", signedness(libc_signed) => clip(14, "")
+        );
+    };
+    (@signedness $name:ident, $sys_fn:ident, $libc_fn:ident, $index:literal) => {
+        let (sys_signed, libc_signed) = (
+            arg_signedness::<_, $index>($sys_fn),
+            arg_signedness::<_, $index>($libc_fn),
+        );
+        compile_assert!(
+            same_signedness(sys_signed, libc_signed),
+            "libc/esp-idf-sys function mismatch for `", stringify!($name), "` argument ",
+            stringify!($index), " signedness: esp-idf=", signedness(sys_signed) => clip(14, ""),
+            " libc=", signedness(libc_signed) => clip(14, "")
+        );
+    };
+}
+
+macro_rules! signedness {
+    ($signed:expr; $($ty:ty),+) => {
+        $(
+            impl Signedness for $ty {
+                const SIGNED: Option<bool> = $signed;
+            }
+        )+
+    };
+}
+
+/// `FnPtr` and `FnArg` for the function pointer types taking `$arg`s, variadic or not
+macro_rules! fn_ptrs {
+    ($(($($arg:ident $index:literal),*))*) => {
+        $(
+            impl<R, $($arg),*> FnPtr for unsafe extern "C" fn($($arg),*) -> R {
+                const ARG_SIZES: &'static [usize] = &[$(std::mem::size_of::<$arg>()),*];
+                type Ret = R;
+            }
+
+            fn_ptrs!(@variadic $($arg),*);
+            fn_ptrs!(@args [$($arg),*] $($arg $index),*);
+        )*
+    };
+    (@variadic) => {};
+    (@variadic $($arg:ident),+) => {
+        impl<R, $($arg),*> FnPtr for unsafe extern "C" fn($($arg),*, ...) -> R {
+            const ARG_SIZES: &'static [usize] = &[$(std::mem::size_of::<$arg>()),*];
+            type Ret = R;
+        }
+    };
+    (@args $all:tt $($arg:ident $index:literal),*) => {
+        $(fn_ptrs!(@arg $all $arg $index);)*
+    };
+    (@arg [$($all:ident),*] $arg:ident $index:literal) => {
+        impl<R, $($all),*> FnArg<$index> for unsafe extern "C" fn($($all),*) -> R {
+            type Arg = $arg;
+        }
+
+        impl<R, $($all),*> FnArg<$index> for unsafe extern "C" fn($($all),*, ...) -> R {
+            type Arg = $arg;
+        }
+    };
+}
+
+/// The signedness of a type which a C integer could be declared as, `None` if not an integer
+trait Signedness {
+    const SIGNED: Option<bool>;
+}
+
+signedness!(Some(true); i8, i16, i32, i64, i128, isize);
+signedness!(Some(false); u8, u16, u32, u64, u128, usize);
+signedness!(None; (), f32, f64);
+
+impl<T: ?Sized> Signedness for *const T {
+    const SIGNED: Option<bool> = None;
+}
+
+impl<T: ?Sized> Signedness for *mut T {
+    const SIGNED: Option<bool> = None;
+}
+
+impl<T> Signedness for Option<T> {
+    const SIGNED: Option<bool> = None;
+}
+
+impl<T, const N: usize> Signedness for [T; N] {
+    const SIGNED: Option<bool> = None;
+}
+
+/// An `extern "C"` function pointer type
+trait FnPtr: Copy {
+    /// The sizes of the (non-variadic) arguments
+    const ARG_SIZES: &'static [usize];
+
+    type Ret;
+}
+
+/// An `extern "C"` function pointer type with an `I`-th argument
+trait FnArg<const I: usize>: FnPtr {
+    type Arg;
+}
+
+fn_ptrs! {
+    ()
+    (A0 0)
+    (A0 0, A1 1)
+    (A0 0, A1 1, A2 2)
+    (A0 0, A1 1, A2 2, A3 3)
+    (A0 0, A1 1, A2 2, A3 3, A4 4)
+    (A0 0, A1 1, A2 2, A3 3, A4 4, A5 5)
+    (A0 0, A1 1, A2 2, A3 3, A4 4, A5 5, A6 6)
+    (A0 0, A1 1, A2 2, A3 3, A4 4, A5 5, A6 6, A7 7)
+}
+
+/// The size of the field which `field` (never called) points to
+const fn field_size<S, T>(_field: fn(*const S) -> *const T) -> usize {
+    std::mem::size_of::<T>()
+}
+
+/// The signedness of the field which `field` (never called) points to
+const fn field_signedness<S, T: Signedness>(_field: fn(*const S) -> *const T) -> Option<bool> {
+    T::SIGNED
+}
+
+const fn arg_sizes<F: FnPtr>(_fn: F) -> &'static [usize] {
+    F::ARG_SIZES
+}
+
+const fn arg_signedness<F: FnArg<I>, const I: usize>(_fn: F) -> Option<bool>
+where
+    F::Arg: Signedness,
+{
+    <F::Arg as Signedness>::SIGNED
+}
+
+const fn ret_size<F: FnPtr>(_fn: F) -> usize {
+    std::mem::size_of::<F::Ret>()
+}
+
+const fn ret_signedness<F: FnPtr>(_fn: F) -> Option<bool>
+where
+    F::Ret: Signedness,
+{
+    <F::Ret as Signedness>::SIGNED
+}
+
+/// Whether both are integers of the same signedness
+const fn same_signedness(signed1: Option<bool>, signed2: Option<bool>) -> bool {
+    matches!((signed1, signed2), (Some(signed1), Some(signed2)) if signed1 == signed2)
+}
+
+const fn signedness(signed: Option<bool>) -> &'static str {
+    match signed {
+        Some(true) => "signed",
+        Some(false) => "unsigned",
+        None => "not an integer",
+    }
+}
+
+#[allow(dead_code)]
+const fn same_str(str1: &str, str2: &str) -> bool {
+    let (str1, str2) = (str1.as_bytes(), str2.as_bytes());
+
+    if str1.len() != str2.len() {
+        return false;
+    }
+
+    let mut index = 0;
+    while index < str1.len() {
+        if str1[index] != str2[index] {
+            return false;
+        }
+
+        index += 1;
+    }
+
+    true
 }
 
 check_types_manually!(

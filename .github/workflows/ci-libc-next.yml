@@ -4,6 +4,9 @@ name: CILibcNext
 # rust-lang/libc, so that a libc change breaking `std` or the compile-time checks in
 # `esp-idf-sys/src/checks/libc.rs` shows up before it is published.
 # The `[patch]` is passed with `--config`, as only a config-level patch reaches `-Zbuild-std`.
+# An informational second build lists the known mismatches of the checks as well: with libc-0.2
+# for `esp-idf-sys` only, by a manifest-level patch, so that a `std` broken by libc-0.2 does not
+# hide them.
 
 on:
   push:
@@ -87,3 +90,13 @@ jobs:
           cargo build -p esp-idf-sys --target ${{ matrix.target }} -Zbuild-std=std,panic_abort
           --config 'patch.crates-io.libc.git="https://github.com/rust-lang/libc"'
           --config 'patch.crates-io.libc.branch="libc-0.2"'
+
+      # Fails as long as any known mismatch of `esp-idf-sys/build/libc_checks.rs` remains
+      - name: Build | All known esp-idf-sys/libc mismatches (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          ESP_IDF_LIBC_MISMATCHES: err
+        run: |
+          printf '\n[patch.crates-io]\nlibc = { git = "https://github.com/rust-lang/libc", branch = "libc-0.2" }\n' >> Cargo.toml
+          cargo build -p esp-idf-sys --target ${{ matrix.target }} -Zbuild-std=std,panic_abort

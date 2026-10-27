@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Not a member of the root workspace, which builds for the ESP targets; run with `cargo xtask`
+[workspace]
+
+[dependencies]
+anyhow = "1"
+cargo_metadata = "0.18"
+clap = { version = "4", features = ["derive"] }
+syn = { version = "2", features = ["full", "visit"] }
+toml = "0.8"

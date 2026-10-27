@@ -10,6 +10,8 @@ use embuild::{bindgen as bindgen_utils, build, cargo, kconfig, path_buf};
 
 mod common;
 mod config;
+mod libc_checks;
+mod libc_items;
 
 // Features `native` and `pio` control whether the build is performed using the "native" ESP IDF CMake-based build,
 // or via the PlatformIO `espressif32` module. They work as follows:
@@ -255,6 +257,12 @@ fn main() -> anyhow::Result<()> {
 
     // Cargo fmt generated bindings.
     bindgen_utils::cargo_fmt_file(&bindings_file);
+
+    // The `libc` compatibility checks of `src/checks/libc.rs`
+    libc_checks::generate(
+        &bindings_file,
+        &bindings_file.with_file_name("libc_checks.rs"),
+    )?;
 
     let cfg_args = build::CfgArgs {
         args: cfg_args

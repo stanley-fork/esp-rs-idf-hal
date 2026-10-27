@@ -21,3 +21,7 @@ ESP_IDF_VERSION = "v5.5.5"
 #ESP_IDF_VERSION = "v6.1"
 # The esp32h4 shares the riscv32imafc target with the esp32p4
 #MCU = "esp32h4"
+
+[alias]
+# Workspace maintenance tasks (see `xtask/src/main.rs`), built for the host
+xtask = ["run", "--manifest-path", "xtask/Cargo.toml", "--target", "host-tuple", "--config", "unstable.build-std=[]", "--"]

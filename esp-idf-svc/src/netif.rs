@@ -586,8 +586,8 @@ impl EspNetif {
             netif.set_dns(dns);
 
             if dhcps {
-                // The DHCP server only exists with IPv4, and `dhcps` is always `false` without it
-                #[cfg(any(esp_idf_lwip_ipv4, not(esp_idf_version_at_least_5_1_0)))]
+                // ESP-IDF has the DHCP server only with `CONFIG_LWIP_DHCPS`, which requires IPv4
+                #[cfg(esp_idf_lwip_dhcps)]
                 {
                     #[cfg(esp_idf_version_major = "4")]
                     let mut dhcps_dns_value: dhcps_offer_t = dhcps_offer_option_OFFER_DNS as _;
